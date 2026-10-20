@@ -1,0 +1,24 @@
+# ===== Core =====
+numpy>=1.26.0
+pandas>=2.1.0
+scipy>=1.11.0
+
+# ===== Black-Litterman =====
+PyPortfolioOpt>=1.5.5
+
+# ===== Données =====
+yfinance>=0.2.33
+
+# ===== Dashboard =====
+streamlit>=1.30.0
+plotly>=5.18.0
+
+# ===== Graphiques =====
+matplotlib>=3.8.0
+
+# ===== Rapport PDF =====
+reportlab>=4.0.0
+Pillow>=10.0.0
+
+# ===== Tests =====
+pytest>=7.4.0
