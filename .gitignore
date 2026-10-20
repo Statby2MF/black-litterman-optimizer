@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Données
+data/*.csv
+data/*.parquet
+reports/*.pdf
+reports/*.png
+
+# EXCEPTION : screenshots
+!docs/screenshots/*.png
+
+# Secrets
+.env
