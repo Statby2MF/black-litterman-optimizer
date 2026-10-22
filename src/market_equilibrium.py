@@ -154,27 +154,18 @@ def compute_delta(
     Formule (Idzorek 2005) :
         δ = (R_marché - r_f) / σ²_marché
 
-    où σ²_marché = w^T · Σ · w
-
-    Parameters
-    ----------
-    weights_market : pd.Series
-        Poids de marché.
-    covariance : pd.DataFrame
-        Matrice de covariance annualisée.
-    market_return : float
-        Rendement annuel du marché (ex : 0.10 = +10%).
-    risk_free : float
-        Taux sans risque annuel.
-
-    Returns
-    -------
-    float
-        δ (typiquement 2-4).
+    ⚠️ ATTENTION AUX UNITÉS :
+        - market_return, risk_free : en décimal (0.10 = 10%)
+        - covariance : en %² (car rendements × 100)
+        - Il faut diviser la covariance par 10 000 pour la mettre en décimal²
     """
     w = weights_market.values
     Sigma = covariance.values
-    sigma_market_sq = float(w @ Sigma @ w)
+
+    # ⚠️ Conversion : de %² à décimal² (÷ 100² = ÷ 10 000)
+    Sigma_decimal = Sigma / 10_000.0
+
+    sigma_market_sq = float(w @ Sigma_decimal @ w)
 
     if sigma_market_sq <= 0:
         raise ValueError("Variance de marché nulle")
@@ -212,9 +203,18 @@ def compute_prior_returns(
     pd.Series
         Rendements implicites annualisés (en %).
     """
-    Pi = delta * covariance.values @ weights_market.values
+        # ⚠️ Formule : Π = δ · Σ · w_mkt
+    # Comme Sigma est en %² et w_mkt en décimal, Pi sera en %².
+    # Il faut multiplier par 100 pour revenir en %.
+    # MAIS attention : Σ en %² × w en décimal = %²
+    # Et on veut Π en % (rendement).
+    # Π = δ · (Σ_en_%² / 100) · w → en % (car Σ/100 est en % de rendement)
+
+    # Version correcte : garder Σ en %², multiplier par w (décimal), puis
+    # diviser par 100 pour obtenir un rendement en %.
+
+    Pi = delta * (covariance.values @ weights_market.values) / 100.0
     Pi_series = pd.Series(Pi, index=covariance.index, name="prior_return")
-    # Convertit en % (car cov est en (rendement%)²)
     return Pi_series
 
 
