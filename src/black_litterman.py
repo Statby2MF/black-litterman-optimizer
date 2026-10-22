@@ -220,6 +220,14 @@ def run_black_litterman(
     posterior_returns = bl.bl_returns()
     posterior_cov = bl.bl_cov()
 
+    # ⚠️ Convertit en DataFrame si nécessaire (PyPortfolioOpt peut retourner un array)
+    if not isinstance(posterior_cov, pd.DataFrame):
+        posterior_cov = pd.DataFrame(
+            posterior_cov, index=assets, columns=assets
+        )
+    if not isinstance(posterior_returns, pd.Series):
+        posterior_returns = pd.Series(posterior_returns, index=assets)
+
     # 4. Optimisation du portefeuille
     if verbose:
         print("  [5/5] Optimisation du portefeuille (max Sharpe)…")
@@ -236,23 +244,24 @@ def run_black_litterman(
         weights = weights.reindex(assets, fill_value=0.0)
     except Exception as e:
         if verbose:
-            print(f"  ⚠️ Optimisation échouée ({e}), poids équipondérés")
-        weights = pd.Series(1.0 / n_assets, index=assets)
-
-    # Récap
-    prior_pct = prior_decimal * 100
-    posterior_pct = posterior_returns * 100
-
-    return BlackLittermanResult(
-        assets=assets,
-        prior_returns=prior_pct,
-        posterior_returns=posterior_pct,
-        posterior_cov=posterior_cov,
-        weights=weights,
-        tau=tau,
-        n_views=len(views_set.views),
-    )
-
+            print(f"  ⚠️ Optimisation max Sharpe échouée ({e})")
+            print("     → Tentative avec min_volatility…")
+        try:
+            ef = EfficientFrontier(
+                posterior_cov,
+                posterior_returns,
+                weight_bounds=(MIN_WEIGHT, MAX_WEIGHT),
+            )
+            raw_weights = ef.min_volatility()
+            cleaned_weights = ef.clean_weights()
+            weights = pd.Series(cleaned_weights)
+            weights = weights.reindex(assets, fill_value=0.0)
+            if verbose:
+                print("     ✅ min_volatility OK")
+        except Exception as e2:
+            if verbose:
+                print(f"  ⚠️ min_volatility aussi échoué ({e2}), poids équipondérés")
+            weights = pd.Series(1.0 / n_assets, index=assets)
 
 # ---------------------------------------------------------------------------
 # Test rapide
