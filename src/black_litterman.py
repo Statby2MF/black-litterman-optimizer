@@ -144,7 +144,81 @@ def build_bl_views(
 
     return P_df, Q_array, conf_array
 
+# ---------------------------------------------------------------------------
+# Optimisation manuelle (contourne PyPortfolioOpt)
+# ---------------------------------------------------------------------------
 
+def optimize_max_sharpe(
+    posterior_returns: pd.Series,
+    posterior_cov: pd.DataFrame,
+    risk_free: float = 0.02,
+    min_weight: float = 0.0,
+    max_weight: float = 1.0,
+) -> pd.Series:
+    """
+    Optimisation Max Sharpe via scipy.optimize.
+
+    Maximise : (w'μ - r_f) / sqrt(w'Σw)
+    Sujet à : Σw_i = 1, min_weight ≤ w_i ≤ max_weight
+
+    Parameters
+    ----------
+    posterior_returns : pd.Series
+        Rendements postérieurs (en décimal).
+    posterior_cov : pd.DataFrame
+        Covariance postérieure (en décimal²).
+    risk_free : float
+        Taux sans risque (décimal).
+    min_weight, max_weight : float
+        Bornes des poids.
+
+    Returns
+    -------
+    pd.Series
+        Poids optimaux (somme = 1).
+    """
+    from scipy.optimize import minimize
+
+    assets = list(posterior_returns.index)
+    n = len(assets)
+
+    mu = np.asarray(posterior_returns.values, dtype=float)
+    Sigma = np.asarray(posterior_cov.values, dtype=float)
+
+    # Nettoyage : enlève NaN/inf
+    mu = np.nan_to_num(mu, nan=0.0, posinf=0.0, neginf=0.0)
+    Sigma = np.nan_to_num(Sigma, nan=0.0, posinf=0.0, neginf=0.0)
+    # Symétrise
+    Sigma = (Sigma + Sigma.T) / 2
+    # Régularise (assure définie positive)
+    Sigma = Sigma + np.eye(n) * 1e-8
+
+    def neg_sharpe(w):
+        port_ret = w @ mu
+        port_vol = np.sqrt(max(w @ Sigma @ w, 1e-12))
+        return -(port_ret - risk_free) / port_vol
+
+    # Contraintes
+    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
+    bounds = [(min_weight, max_weight)] * n
+
+    # Point de départ : équipondéré
+    w0 = np.ones(n) / n
+
+    try:
+        result = minimize(
+            neg_sharpe, w0, method="SLSQP",
+            bounds=bounds, constraints=constraints,
+            options={"maxiter": 500, "ftol": 1e-9},
+        )
+        if not result.success:
+            # Fallback : équipondéré
+            return pd.Series(1.0 / n, index=assets)
+        weights = np.clip(result.x, min_weight, max_weight)
+        weights = weights / weights.sum()  # renormalise
+        return pd.Series(weights, index=assets)
+    except Exception:
+        return pd.Series(1.0 / n, index=assets)
 # ---------------------------------------------------------------------------
 # Modèle Black-Litterman
 # ---------------------------------------------------------------------------
@@ -209,50 +283,20 @@ def run_black_litterman(
         index=assets,
     )
 
-    # 4. Optimisation du portefeuille
+    # 4. Optimisation du portefeuille (via scipy, contourne PyPortfolioOpt)
     if verbose:
-        print("  [5/5] Optimisation du portefeuille (max Sharpe)…")
+        print("  [5/5] Optimisation du portefeuille (max Sharpe via scipy)…")
 
-    weights = None  # valeur par défaut
+    weights = optimize_max_sharpe(
+        posterior_returns=posterior_returns,
+        posterior_cov=posterior_cov,
+        risk_free=risk_free,
+        min_weight=MIN_WEIGHT,
+        max_weight=MAX_WEIGHT,
+    )
 
-    # Tentative 1 : Max Sharpe
-    try:
-        ef = EfficientFrontier(
-            posterior_cov,
-            posterior_returns,
-            weight_bounds=(MIN_WEIGHT, MAX_WEIGHT),
-        )
-        raw_weights = ef.max_sharpe(risk_free_rate=risk_free)
-        cleaned_weights = ef.clean_weights()
-        weights = pd.Series(cleaned_weights).reindex(assets, fill_value=0.0)
-        if verbose:
-            print("     ✅ max_sharpe OK")
-    except Exception as e:
-        if verbose:
-            print(f"     ⚠️ max_sharpe échoué : {e}")
-
-    # Tentative 2 : Min Volatility
-    if weights is None:
-        try:
-            ef = EfficientFrontier(
-                posterior_cov,
-                posterior_returns,
-                weight_bounds=(MIN_WEIGHT, MAX_WEIGHT),
-            )
-            raw_weights = ef.min_volatility()
-            cleaned_weights = ef.clean_weights()
-            weights = pd.Series(cleaned_weights).reindex(assets, fill_value=0.0)
-            if verbose:
-                print("     ✅ min_volatility OK")
-        except Exception as e:
-            if verbose:
-                print(f"     ⚠️ min_volatility échoué : {e}")
-
-    # Tentative 3 : équipondéré (fallback ultime)
-    if weights is None:
-        if verbose:
-            print("     ⚠️ Fallback : poids équipondérés")
-        weights = pd.Series(1.0 / n_assets, index=assets)
+    if verbose:
+        print(f"     ✅ Optimisation OK (somme des poids = {weights.sum():.4f})")
 
     # Récap
     prior_pct = prior_decimal * 100
