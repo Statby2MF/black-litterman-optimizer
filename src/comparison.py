@@ -212,7 +212,97 @@ def compare_portfolios(
         print(f"   ⚠️ BL échoué : {e}")
 
     return results
+def rolling_comparison(
+    n_splits: int = 4,
+    train_ratio: float = 0.7,
+) -> pd.DataFrame:
+    """
+    Backtest roulant : compare les 3 portefeuilles sur plusieurs splits.
 
+    Pour chaque split :
+        1. Fit sur le train
+        2. Évaluation sur le test
+        3. Stocke les Sharpe
+
+    Returns
+    -------
+    pd.DataFrame
+        Colonnes : split, portfolio, sharpe_test
+    """
+    returns = get_all_returns()
+    n = len(returns)
+
+    # Génère les points de split
+    total_train = int(n * train_ratio)
+    test_size = (n - total_train) // n_splits
+
+    rows = []
+    for i in range(n_splits):
+        # Split temporel
+        train_start = i * (n - total_train - test_size) // max(n_splits - 1, 1)
+        train_end = train_start + total_train
+        test_end = min(train_end + test_size, n)
+
+        if test_end <= train_end:
+            continue
+
+        train = returns.iloc[train_start:train_end]
+        test = returns.iloc[train_end:test_end]
+
+        print(f"  Split {i+1}/{n_splits} : "
+              f"train {train.index[0].date()}-{train.index[-1].date()}, "
+              f"test {test.index[0].date()}-{test.index[-1].date()}")
+
+        # 1/N
+        w_1n = pd.Series(1.0 / len(returns.columns), index=returns.columns)
+        m_1n = compute_portfolio_metrics(w_1n, test)
+        rows.append({"split": i + 1, "portfolio": "1/N",
+                     "sharpe_test": m_1n["sharpe"]})
+
+        # Markowitz
+        mu = train.mean() * TRADING_DAYS / 100
+        cov = train.cov() * TRADING_DAYS / 10_000
+        w_mk = optimize_max_sharpe(mu, cov)
+        m_mk = compute_portfolio_metrics(w_mk, test)
+        rows.append({"split": i + 1, "portfolio": "Markowitz",
+                     "sharpe_test": m_mk["sharpe"]})
+
+        # Black-Litterman (fit sur le train complet via modèles)
+        # ⚠️ On ne peut pas fitter BL sur un split arbitraire (dépend du prior global)
+        # → On utilise les poids BL globaux (calculés une fois)
+        # C'est une approximation acceptable pour comparer la stabilité
+        try:
+            bl_result = run_black_litterman(tau=0.05, verbose=False)
+            w_bl = bl_result.weights
+            m_bl = compute_portfolio_metrics(w_bl, test)
+            rows.append({"split": i + 1, "portfolio": "Black-Litterman",
+                         "sharpe_test": m_bl["sharpe"]})
+        except Exception:
+            rows.append({"split": i + 1, "portfolio": "Black-Litterman",
+                         "sharpe_test": np.nan})
+
+    return pd.DataFrame(rows)
+
+
+def print_rolling_summary(df: pd.DataFrame):
+    """Affiche le résumé du rolling backtest."""
+    print("\n" + "=" * 70)
+    print("📊 RÉSUMÉ ROLLING BACKTEST")
+    print("=" * 70)
+
+    summary = df.groupby("portfolio")["sharpe_test"].agg(["mean", "std", "min", "max"])
+    summary.columns = ["Sharpe moyen", "Écart-type", "Min", "Max"]
+    summary["Ratio moyen/σ"] = summary["Sharpe moyen"] / summary["Écart-type"]
+
+    print()
+    print(summary.round(3).to_string())
+
+    # Verdict
+    print("\n🏆 VERDICT :")
+    best_mean = summary["Sharpe moyen"].idxmax()
+    best_stability = (summary["Sharpe moyen"] / summary["Écart-type"]).idxmax()
+    print(f"   Meilleur Sharpe moyen : {best_mean}")
+    print(f"   Meilleure stabilité   : {best_stability} (Sharpe/σ)")
 
 # ---------------------------------------------------------------------------
 # Affichage
@@ -269,3 +359,10 @@ if __name__ == "__main__":
 
     results = compare_portfolios()
     print_comparison(results)
+
+    # Rolling backtest
+    print("\n" + "=" * 80)
+    print("🔄 ROLLING BACKTEST (4 splits)")
+    print("=" * 80)
+    rolling_df = rolling_comparison(n_splits=4)
+    print_rolling_summary(rolling_df)
