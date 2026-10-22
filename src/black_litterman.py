@@ -141,11 +141,11 @@ def build_bl_views(
                      if abs(row[asset]) > 1e-9}
         views_dict[view_name] = view_dict
 
-    # Q et confidence en liste (Q en décimal)
-    q_list = (Q / 100.0).tolist()
-    conf_list = conf.tolist()
+    # Q et confidence en numpy arrays (exigé par PyPortfolioOpt)
+    q_array = (Q / 100.0).values.astype(float)
+    conf_array = conf.values.astype(float)
 
-    return views_dict, q_list, conf_list
+    return views_dict, q_array, conf_array
 
 
 # ---------------------------------------------------------------------------
@@ -212,12 +212,13 @@ def run_black_litterman(
     bl = BlackLittermanModel(
         cov_matrix=cov_decimal,
         pi=prior_decimal,
-        Q=Q,
+        Q=Q,                            # numpy array
         P=views_dict,
         omega="idzorek",
-        view_confidences=confidence,
+        view_confidences=confidence,    # numpy array
         tau=tau,
     )
+    
 
     posterior_returns = bl.bl_returns()
     posterior_cov = bl.bl_cov()
