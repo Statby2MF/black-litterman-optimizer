@@ -223,16 +223,21 @@ def compute_prior_returns(
 # ---------------------------------------------------------------------------
 
 def compute_market_equilibrium(
-    market_return: float = 0.10,
+    delta: float = 3.0,
+    verbose: bool = False,
 ) -> MarketEquilibrium:
     """
-    Pipeline complet : données → poids marché → covariance → delta → prior.
+    Pipeline complet : données → poids marché → covariance → prior.
+
+    ⚠️ Convention : on FIXE δ (aversion au risque) à 3.0, standard
+    de la littérature (Idzorek 2005). C'est plus robuste que de
+    l'estimer à partir d'un market_return arbitraire, surtout pour
+    un portefeuille crypto-dominant.
 
     Parameters
     ----------
-    market_return : float
-        Rendement annuel attendu du marché (ex : 0.10 = +10%).
-        Typiquement 8-12% pour un portefeuille multi-actifs.
+    delta : float
+        Aversion au risque (typiquement 2-4). Défaut : 3.0.
 
     Returns
     -------
@@ -248,11 +253,11 @@ def compute_market_equilibrium(
     # 3. Covariance
     cov = compute_covariance(returns, annualize=True)
 
-    # 4. Delta
-    delta = compute_delta(weights, cov, market_return=market_return)
-
-    # 5. Prior
+    # 4. Prior (avec delta fixé)
     prior = compute_prior_returns(delta, cov, weights)
+
+    if verbose:
+        print(f"  δ (fixé) : {delta:.4f}")
 
     return MarketEquilibrium(
         weights_market=weights,
@@ -261,7 +266,6 @@ def compute_market_equilibrium(
         prior_returns=prior,
     )
 
-
 # ---------------------------------------------------------------------------
 # Test rapide
 # ---------------------------------------------------------------------------
@@ -269,7 +273,7 @@ def compute_market_equilibrium(
 if __name__ == "__main__":
     print("🔍 Test du module market_equilibrium\n")
 
-    eq = compute_market_equilibrium()
+    eq = compute_market_equilibrium(delta=3.0)
     print(eq.summary())
 
     print()
