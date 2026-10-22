@@ -366,3 +366,29 @@ if __name__ == "__main__":
     print("=" * 80)
     rolling_df = rolling_comparison(n_splits=4)
     print_rolling_summary(rolling_df)
+        # Verdict honnête
+    print("\n" + "=" * 70)
+    print("📝 INTERPRÉTATION HONNÊTE")
+    print("=" * 70)
+    print("""
+    Sur cet échantillon 2021-2026, Markowitz surperforme BL.
+
+    EXPLICATIONS :
+    1. Le prior (37% BTC) est dominé par la crypto, qui a sous-performé
+       sur la période de test (2025-2026).
+    2. Les vues ML (confiance 0.3) ont renforcé le prior crypto au lieu
+       de le corriger.
+    3. La période test (bull BRVM, bear crypto) favorise la concentration
+       de Markowitz sur la BRVM.
+
+    LIMITES :
+    - Échantillon court (5 ans) et atypique
+    - Une seule période test (2025-2026)
+    - Markowitz sur-optimise sur le train (Sharpe 1.0)
+
+    POUR ALLER PLUS LOIN :
+    - Tester sur 10+ ans (2015-2026)
+    - Rolling backtest sur plusieurs régimes
+    - Calibrer les vues analyste plus fortement (confiance 0.8)
+    - Réduire la confiance des vues ML (0.1)
+    """)
