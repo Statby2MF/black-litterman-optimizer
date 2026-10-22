@@ -157,27 +157,6 @@ def run_black_litterman(
 ) -> BlackLittermanResult:
     """
     Pipeline complet Black-Litterman.
-
-    Étapes :
-        1. Calcul du prior (market_equilibrium)
-        2. Préparation des vues
-        3. Construction du modèle BL
-        4. Extraction des rendements posterior
-        5. Optimisation du portefeuille
-
-    Parameters
-    ----------
-    views_set : ViewsSet, optional
-        Si None, utilise les vues par défaut (analyste + ML).
-    tau : float
-        Incertitude du prior. Défaut : 0.05.
-    risk_free : float
-        Taux sans risque. Défaut : 0.02.
-    verbose : bool
-
-    Returns
-    -------
-    BlackLittermanResult
     """
     # 1. Prior (market equilibrium)
     if verbose:
@@ -210,28 +189,33 @@ def run_black_litterman(
         cov_matrix=cov_decimal,
         pi=prior_decimal,
         Q=Q,
-        P=P_df,                         # ← DataFrame maintenant
+        P=P_df,
         omega="idzorek",
         view_confidences=confidence,
         tau=tau,
     )
-    
 
     posterior_returns = bl.bl_returns()
     posterior_cov = bl.bl_cov()
 
-    # ⚠️ Convertit en DataFrame si nécessaire (PyPortfolioOpt peut retourner un array)
-    if not isinstance(posterior_cov, pd.DataFrame):
-        posterior_cov = pd.DataFrame(
-            posterior_cov, index=assets, columns=assets
-        )
-    if not isinstance(posterior_returns, pd.Series):
-        posterior_returns = pd.Series(posterior_returns, index=assets)
+    # ⚠️ CORRECTION CRUCIALE : forcer DataFrame avec les bons index/columns
+    posterior_cov = pd.DataFrame(
+        np.asarray(posterior_cov),
+        index=assets,
+        columns=assets,
+    )
+    posterior_returns = pd.Series(
+        np.asarray(posterior_returns),
+        index=assets,
+    )
 
     # 4. Optimisation du portefeuille
     if verbose:
         print("  [5/5] Optimisation du portefeuille (max Sharpe)…")
 
+    weights = None  # valeur par défaut
+
+    # Tentative 1 : Max Sharpe
     try:
         ef = EfficientFrontier(
             posterior_cov,
@@ -240,12 +224,15 @@ def run_black_litterman(
         )
         raw_weights = ef.max_sharpe(risk_free_rate=risk_free)
         cleaned_weights = ef.clean_weights()
-        weights = pd.Series(cleaned_weights)
-        weights = weights.reindex(assets, fill_value=0.0)
+        weights = pd.Series(cleaned_weights).reindex(assets, fill_value=0.0)
+        if verbose:
+            print("     ✅ max_sharpe OK")
     except Exception as e:
         if verbose:
-            print(f"  ⚠️ Optimisation max Sharpe échouée ({e})")
-            print("     → Tentative avec min_volatility…")
+            print(f"     ⚠️ max_sharpe échoué : {e}")
+
+    # Tentative 2 : Min Volatility
+    if weights is None:
         try:
             ef = EfficientFrontier(
                 posterior_cov,
@@ -254,15 +241,32 @@ def run_black_litterman(
             )
             raw_weights = ef.min_volatility()
             cleaned_weights = ef.clean_weights()
-            weights = pd.Series(cleaned_weights)
-            weights = weights.reindex(assets, fill_value=0.0)
+            weights = pd.Series(cleaned_weights).reindex(assets, fill_value=0.0)
             if verbose:
                 print("     ✅ min_volatility OK")
-        except Exception as e2:
+        except Exception as e:
             if verbose:
-                print(f"  ⚠️ min_volatility aussi échoué ({e2}), poids équipondérés")
-            weights = pd.Series(1.0 / n_assets, index=assets)
+                print(f"     ⚠️ min_volatility échoué : {e}")
 
+    # Tentative 3 : équipondéré (fallback ultime)
+    if weights is None:
+        if verbose:
+            print("     ⚠️ Fallback : poids équipondérés")
+        weights = pd.Series(1.0 / n_assets, index=assets)
+
+    # Récap
+    prior_pct = prior_decimal * 100
+    posterior_pct = posterior_returns * 100
+
+    return BlackLittermanResult(
+        assets=assets,
+        prior_returns=prior_pct,
+        posterior_returns=posterior_pct,
+        posterior_cov=posterior_cov,
+        weights=weights,
+        tau=tau,
+        n_views=len(views_set.views),
+    )
 # ---------------------------------------------------------------------------
 # Test rapide
 # ---------------------------------------------------------------------------
