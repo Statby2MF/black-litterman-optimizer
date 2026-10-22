@@ -117,35 +117,32 @@ class BlackLittermanResult:
 
 def build_bl_views(
     views_set: ViewsSet,
-) -> tuple[dict, list[float], list[float]]:
+) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
     """
-    Convertit un ViewsSet en format PyPortfolioOpt.
+    Convertit un ViewsSet en format PyPortfolioOpt (v1.5.5+).
 
     Returns
     -------
-    (views_dict, Q, confidence) : (dict, list, list)
-        views_dict : {asset: {asset2: weight}}
-        Q : liste des rendements attendus (en décimal)
-        confidence : liste des confiances
+    (P, Q, confidence) : (pd.DataFrame, np.ndarray, np.ndarray)
+        P : DataFrame (n_views × n_assets) avec les poids de sélection
+        Q : np.ndarray des rendements attendus (en décimal)
+        confidence : np.ndarray des confiances (0-1)
     """
-    P, Q, conf = views_set.to_matrices()
+    P_matrix, Q_series, conf_series = views_set.to_matrices()
 
-    if len(P) == 0:
-        return {}, [], []
+    if len(P_matrix) == 0:
+        return pd.DataFrame(), np.array([]), np.array([])
 
-    # Convertit P en dict-of-dict
-    views_dict = {}
-    for view_name in P.index:
-        row = P.loc[view_name]
-        view_dict = {asset: float(row[asset]) for asset in P.columns
-                     if abs(row[asset]) > 1e-9}
-        views_dict[view_name] = view_dict
+    # P en DataFrame (PyPortfolioOpt v1.5.5+ exige DataFrame ou array)
+    P_df = P_matrix.astype(float)
 
-    # Q et confidence en numpy arrays (exigé par PyPortfolioOpt)
-    q_array = (Q / 100.0).values.astype(float)
-    conf_array = conf.values.astype(float)
+    # Q en numpy array (décimal)
+    Q_array = (Q_series / 100.0).values.astype(float)
 
-    return views_dict, q_array, conf_array
+    # Confidence en numpy array
+    conf_array = conf_series.values.astype(float)
+
+    return P_df, Q_array, conf_array
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +201,7 @@ def run_black_litterman(
 
     if verbose:
         print(f"  [3/5] Préparation des {len(views_set.views)} vues…")
-    views_dict, Q, confidence = build_bl_views(views_set)
+    P_df, Q, confidence = build_bl_views(views_set)
 
     # 3. Modèle BL
     if verbose:
@@ -212,10 +209,10 @@ def run_black_litterman(
     bl = BlackLittermanModel(
         cov_matrix=cov_decimal,
         pi=prior_decimal,
-        Q=Q,                            # numpy array
-        P=views_dict,
+        Q=Q,
+        P=P_df,                         # ← DataFrame maintenant
         omega="idzorek",
-        view_confidences=confidence,    # numpy array
+        view_confidences=confidence,
         tau=tau,
     )
     
